@@ -121,7 +121,18 @@
   function lsGet(k, d) { try { var v = LS.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
   function lsSet(k, v) { try { LS.setItem(k, JSON.stringify(v)); } catch (e) {} }
   var best = lsGet('mergedrop_best', 0);
+  var newBestThisGame = false;
+  // Persist best the moment it is beaten, not only at game over (fix-v2):
+  // players who hit New game mid-game used to lose the score entirely.
+  function saveBest() {
+    if (score > best) { best = score; lsSet('mergedrop_best', best); newBestThisGame = true; }
+  }
   var bestTile = lsGet('mergedrop_best_tile', 0);
+  // Persist best tile the moment it is beaten, not only at game over:
+  // same flaw as BEST before fix-v2 (mid-game restart lost it).
+  function saveBestTile() {
+    if (maxTile > bestTile) { bestTile = maxTile; lsSet('mergedrop_best_tile', bestTile); }
+  }
   var gamesPlayed = lsGet('mergedrop_games', 0);
   var firstSeen = lsGet('mergedrop_first_seen', null);
   if (!firstSeen) { firstSeen = Date.now(); lsSet('mergedrop_first_seen', firstSeen); }
@@ -233,13 +244,16 @@
   function refreshHud() {
     scoreEl.textContent = score;
     bestEl.textContent = Math.max(best, score);
-    maxEl.textContent = maxTile ? maxTile : '–';
+    maxEl.textContent = Math.max(bestTile, maxTile) || '–';
     clearBtn.textContent = clearArmed ? 'Tap a tile to clear it' : 'Clear a tile (\u00d7' + clearsLeft + ')';
     clearBtn.disabled = clearsLeft <= 0 && !clearArmed;
     clearBtn.classList.toggle('armed', !!clearArmed);
   }
 
   function newGame() {
+    saveBest();
+    saveBestTile();
+    newBestThisGame = false;
     grid = emptyGrid();
     score = 0; maxTile = 0; moves = 0; merges = 0; over = false; locked = false;
     clearsLeft = 2; clearArmed = false;
@@ -334,8 +348,10 @@
       var newVal = v + 1;
       var gained = newVal * 10 * chain;
       score += gained;
+      saveBest();
       merges++;
       if (newVal > maxTile) maxTile = newVal;
+      saveBestTile();
       // Merge into the lowest cell of the group.
       var target = group[0];
       for (var i = 1; i < group.length; i++) if (group[i][0] > target[0]) target = group[i];
@@ -377,8 +393,9 @@
   function endGame() {
     over = true; locked = true;
     var duration = Math.round((Date.now() - startTime) / 1000);
-    var isNewBest = score > best;
-    if (isNewBest) { best = score; lsSet('mergedrop_best', best); }
+    // best was already saved the moment it was beaten (saveBest, fix-v2);
+    // the flag keeps the "New best!" badge working at game over.
+    var isNewBest = newBestThisGame;
     if (maxTile > bestTile) { bestTile = maxTile; lsSet('mergedrop_best_tile', bestTile); }
     gamesPlayed++; lsSet('mergedrop_games', gamesPlayed);
     logEvent('game_over', { score: score, max_tile: maxTile, moves: moves, duration_sec: duration, reason: 'full' });
