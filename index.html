@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Merge Drop — Merge &amp; Drop Puzzle</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: #101623;
+    color: #f2f5fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center;
+  }
+  #app { width: 100%; max-width: 430px; min-height: 100%; display: flex; flex-direction: column; padding: 14px 14px 18px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  h1 { font-size: 22px; letter-spacing: .5px; }
+  h1 span { color: #ffd23f; }
+  #muteBtn {
+    background: #1d2740; color: #f2f5fa; border: 1px solid #33415e; border-radius: 10px;
+    font-size: 15px; padding: 8px 11px; cursor: pointer;
+  }
+  #scores { display: flex; gap: 8px; margin-top: 12px; }
+  .scoreBox {
+    flex: 1; background: #1d2740; border: 1px solid #2b3a5c; border-radius: 12px;
+    padding: 8px 10px; text-align: center;
+  }
+  .scoreBox .label { font-size: 11px; color: #9fb0cc; text-transform: uppercase; letter-spacing: 1px; }
+  .scoreBox .value { font-size: 22px; font-weight: 800; line-height: 1.2; }
+  #nextRow { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  #nextTile {
+    width: 44px; height: 44px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 800; color: #fff; background: #7a9cc6; flex: none;
+  }
+  #hint { font-size: 14px; line-height: 1.4; color: #c6d2e6; }
+  #hint b { color: #ffd23f; }
+  #boardWrap { position: relative; margin-top: 10px; flex: none; }
+  canvas { display: block; width: 100%; height: auto; border-radius: 16px; background: #16203a; touch-action: manipulation; cursor: pointer; }
+  #clearRow { display: flex; gap: 8px; margin-top: 12px; }
+  #clearBtn {
+    flex: 1; background: #24365e; color: #dbe6ff; border: 1px solid #3a4f7d; border-radius: 12px;
+    font-size: 15px; font-weight: 700; padding: 12px; cursor: pointer;
+  }
+  #clearBtn:disabled { opacity: .45; cursor: default; }
+  #clearBtn.armed { background: #b45309; border-color: #f59e0b; color: #fff; }
+  #restartBtn {
+    flex: 1; background: #ffd23f; color: #191410; border: none; border-radius: 12px;
+    font-size: 17px; font-weight: 800; padding: 12px; cursor: pointer;
+  }
+  #tip { margin-top: 10px; font-size: 12.5px; color: #8ea1c2; text-align: center; line-height: 1.5; }
+  #overlay {
+    position: absolute; inset: 0; border-radius: 16px; background: rgba(10,14,26,.88);
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    text-align: center; padding: 20px;
+  }
+  #overlay.show { display: flex; }
+  #overlay h2 { font-size: 26px; }
+  #overlay .big { font-size: 42px; font-weight: 900; color: #ffd23f; }
+  #overlay p { font-size: 15px; color: #c6d2e6; }
+  #overlay button {
+    margin-top: 10px; background: #ffd23f; color: #191410; border: none; border-radius: 12px;
+    font-size: 18px; font-weight: 800; padding: 14px 26px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>MERGE <span>DROP</span></h1>
+    <button id="muteBtn" type="button" aria-label="Toggle sound">&#128266; Sound</button>
+  </header>
+  <div id="scores">
+    <div class="scoreBox"><div class="label">Score</div><div class="value" id="scoreVal">0</div></div>
+    <div class="scoreBox"><div class="label">Best</div><div class="value" id="bestVal">0</div></div>
+    <div class="scoreBox"><div class="label">Max tile</div><div class="value" id="maxVal">–</div></div>
+  </div>
+  <div id="nextRow">
+    <div id="nextTile">1</div>
+    <div id="hint">Tap a column to drop. <b>Two same numbers touch &rarr; they merge up.</b></div>
+  </div>
+  <div id="boardWrap">
+    <canvas id="board" width="720" height="864"></canvas>
+    <div id="overlay">
+      <h2>Board full!</h2>
+      <div class="big" id="finalScore">0</div>
+      <p id="finalStats">Max tile – &middot; 0 moves</p>
+      <p id="newBest" style="display:none;color:#ffd23f;font-weight:800;">&#127942; New best!</p>
+      <button id="againBtn" type="button">Play again</button>
+    </div>
+  </div>
+  <div id="clearRow">
+    <button id="clearBtn" type="button">Clear a tile (&times;2)</button>
+    <button id="restartBtn" type="button">New game</button>
+  </div>
+  <div id="tip">Tip: drop on the same column to stack the same number. Full board ends the game. Keys 1&ndash;5 drop, arrows move.</div>
+</div>
+<script>
+(function () {
+  'use strict';
+  var COLS = 5, ROWS = 6;
+  var COLORS = {
+    1: '#7a9cc6', 2: '#3fa66a', 3: '#e0b32e', 4: '#e07b2e',
+    5: '#d64545', 6: '#8b5cf6', 7: '#6d28d9', 8: '#db2777',
+    9: '#0ea5e9', 10: '#f59e0b'
+  };
+  function colorFor(v) { return COLORS[v] || '#334155'; }
+
+  var canvas = document.getElementById('board');
+  var ctx = canvas.getContext('2d');
+  var scoreEl = document.getElementById('scoreVal');
+  var bestEl = document.getElementById('bestVal');
+  var maxEl = document.getElementById('maxVal');
+  var nextEl = document.getElementById('nextTile');
+  var hintEl = document.getElementById('hint');
+  var overlay = document.getElementById('overlay');
+  var clearBtn = document.getElementById('clearBtn');
+
+  // ---------- persistence + events (local only, no network) ----------
+  var LS = window.localStorage;
+  function lsGet(k, d) { try { var v = LS.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
+  function lsSet(k, v) { try { LS.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  var best = lsGet('mergedrop_best', 0);
+  var bestTile = lsGet('mergedrop_best_tile', 0);
+  var gamesPlayed = lsGet('mergedrop_games', 0);
+  var firstSeen = lsGet('mergedrop_first_seen', null);
+  if (!firstSeen) { firstSeen = Date.now(); lsSet('mergedrop_first_seen', firstSeen); }
+  var sessionId = 's' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+  var events = lsGet('mergedrop_events', []);
+  function logEvent(type, extra) {
+    var ev = { type: type, ts: Date.now(), session_id: sessionId };
+    if (extra) { for (var k in extra) ev[k] = extra[k]; }
+    events.push(ev);
+    if (events.length > 500) events = events.slice(-500);
+    lsSet('mergedrop_events', events);
+    window.GAME_EVENTS = window.GAME_EVENTS || [];
+    window.GAME_EVENTS.push(ev);
+    if (window.console && console.log) console.log('[merge-drop]', type, ev);
+  }
+  logEvent('session_start', { first_seen: firstSeen });
+
+  // ---------- audio (WebAudio synth only, no files) ----------
+  var audioCtx = null, muted = lsGet('mergedrop_muted', false);
+  function ensureAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  }
+  function beep(freq, dur, type, vol, when) {
+    if (muted || !audioCtx) return;
+    try {
+      var t = audioCtx.currentTime + (when || 0);
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol || 0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function sndDrop() { beep(220, 0.08, 'triangle', 0.08); }
+  function sndMerge(chain, value) {
+    var base = 440 + (value - 1) * 60 + (chain - 1) * 80;
+    beep(base, 0.14, 'sine', 0.14);
+    beep(base * 1.5, 0.16, 'sine', 0.08, 0.05);
+  }
+  function sndDeny() { beep(140, 0.1, 'square', 0.06); }
+  function sndOver() { beep(196, 0.3, 'sine', 0.12); beep(131, 0.45, 'sine', 0.12, 0.2); }
+  function updateMuteBtn() {
+    document.getElementById('muteBtn').innerHTML = muted ? '&#128263; Muted' : '&#128266; Sound';
+  }
+  document.getElementById('muteBtn').addEventListener('click', function () {
+    ensureAudio(); muted = !muted; lsSet('mergedrop_muted', muted); updateMuteBtn();
+  });
+  updateMuteBtn();
+
+  // ---------- game state ----------
+  var grid, score, maxTile, moves, merges, over, locked, nextVal, seed;
+  var clearsLeft, clearArmed;
+  var hoverCol = -1, selectedCol = 0;
+  var floats = []; // {x,y,text,life,total,color}
+  var popCells = {}; // "r,c" -> timestamp of merge pop
+  var dropAnim = null; // {col,row,val,fromY,toY,start,dur}
+  var startTime = 0;
+
+  function emptyGrid() {
+    var g = [];
+    for (var r = 0; r < ROWS; r++) { g.push([null, null, null, null, null]); }
+    return g;
+  }
+  function countEmpty() {
+    var n = 0;
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) if (!grid[r][c]) n++;
+    return n;
+  }
+  function boardValues() {
+    var s = {};
+    for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++)
+      if (grid[r][c]) s[grid[r][c].v] = (s[grid[r][c].v] || 0) + 1;
+    return s;
+  }
+
+  // Early game: first drops are 1s so a merge is reachable within seconds.
+  // Fallback: if no merge in the first 6 moves, force a value that matches a
+  // tile with an empty cell above it in the same column.
+  function pickNext() {
+    if (moves === 0 || moves === 1) return 1;
+    if (moves === 2) return 2;
+    if (moves === 3) return 1;
+    if (merges === 0 && moves >= 6) {
+      for (var c = 0; c < COLS; c++) {
+        for (var r = ROWS - 1; r >= 0; r--) {
+          if (grid[r][c] && (r === 0 || !grid[r - 1][c])) return grid[r][c].v;
+        }
+      }
+    }
+    var pool = score < 50 ? [1, 2] : score < 200 ? [1, 2, 3] : [1, 2, 3, 4];
+    if (countEmpty() <= 4) pool = [1, 2];
+    // Slight weighting toward values already on the board (avoids dead draws).
+    var vals = boardValues(), weighted = pool.slice();
+    for (var v in vals) {
+      var n = parseInt(v, 10);
+      if (pool.indexOf(n) >= 0 && vals[v] >= 2) weighted.push(n);
+    }
+    return weighted[Math.floor(Math.random() * weighted.length)];
+  }
+  function refreshNext() {
+    nextEl.textContent = nextVal;
+    nextEl.style.background = colorFor(nextVal);
+  }
+  function refreshHud() {
+    scoreEl.textContent = score;
+    bestEl.textContent = Math.max(best, score);
+    maxEl.textContent = maxTile ? maxTile : '–';
+    clearBtn.textContent = clearArmed ? 'Tap a tile to clear it' : 'Clear a tile (\u00d7' + clearsLeft + ')';
+    clearBtn.disabled = clearsLeft <= 0 && !clearArmed;
+    clearBtn.classList.toggle('armed', !!clearArmed);
+  }
+
+  function newGame() {
+    grid = emptyGrid();
+    score = 0; maxTile = 0; moves = 0; merges = 0; over = false; locked = false;
+    clearsLeft = 2; clearArmed = false;
+    floats = []; popCells = {}; dropAnim = null;
+    seed = Math.floor(Math.random() * 1e9);
+    startTime = Date.now();
+    nextVal = pickNext();
+    overlay.classList.remove('show');
+    hintEl.innerHTML = 'Tap a column to drop. <b>Two same numbers touch &rarr; they merge up.</b>';
+    refreshNext(); refreshHud();
+    logEvent('game_start', { seed: seed });
+  }
+
+  function lowestEmptyRow(col) {
+    for (var r = ROWS - 1; r >= 0; r--) if (!grid[r][col]) return r;
+    return -1;
+  }
+
+  function addFloat(col, row, text, color) {
+    var m = metrics();
+    floats.push({
+      x: m.pad + col * m.cell + m.cell / 2,
+      y: m.pad + row * m.cell + m.cell * 0.3,
+      text: text, life: 0, total: 900, color: color || '#ffd23f'
+    });
+  }
+
+  // Flood-fill connected same-value tiles (4-directional) from (r,c).
+  function connectedGroup(r, c) {
+    var v = grid[r][c].v, seen = {}, stack = [[r, c]], out = [];
+    seen[r + ',' + c] = true;
+    while (stack.length) {
+      var cur = stack.pop(), cr = cur[0], cc = cur[1];
+      out.push([cr, cc]);
+      var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (var i = 0; i < 4; i++) {
+        var nr = cr + dirs[i][0], nc = cc + dirs[i][1];
+        if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+        if (seen[nr + ',' + nc]) continue;
+        var t = grid[nr][nc];
+        if (t && t.v === v) { seen[nr + ',' + nc] = true; stack.push([nr, nc]); }
+      }
+    }
+    return out;
+  }
+
+  function applyGravity() {
+    for (var c = 0; c < COLS; c++) {
+      var stack = [];
+      for (var r = ROWS - 1; r >= 0; r--) if (grid[r][c]) stack.push(grid[r][c]);
+      for (var r = ROWS - 1, i = 0; r >= 0; r--, i++) grid[r][c] = i < stack.length ? stack[i] : null;
+    }
+  }
+
+  // Find any connected group of >=2 same-value tiles anywhere on the board.
+  function findAnyMergeGroup() {
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (!grid[r][c]) continue;
+        var g = connectedGroup(r, c);
+        if (g.length >= 2) return g;
+      }
+    }
+    return null;
+  }
+
+  // Count adjacent equal pairs (right + down neighbours). 0 = board settled.
+  function countAdjacentPairs() {
+    var n = 0;
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var t = grid[r][c];
+        if (!t) continue;
+        if (c + 1 < COLS && grid[r][c + 1] && grid[r][c + 1].v === t.v) n++;
+        if (r + 1 < ROWS && grid[r + 1][c] && grid[r + 1][c].v === t.v) n++;
+      }
+    }
+    return n;
+  }
+
+  // Resolve every mergeable group on the whole board, repeatedly, until no
+  // adjacent equal pair remains. Each merged tile gets a fresh id and is
+  // located by that id after gravity — never by value.
+  function resolveAllMerges() {
+    var chain = 0;
+    var mergesBefore = merges;
+    while (true) {
+      var group = findAnyMergeGroup();
+      if (!group) break;
+      chain++;
+      var v = grid[group[0][0]][group[0][1]].v;
+      var newVal = v + 1;
+      var gained = newVal * 10 * chain;
+      score += gained;
+      merges++;
+      if (newVal > maxTile) maxTile = newVal;
+      // Merge into the lowest cell of the group.
+      var target = group[0];
+      for (var i = 1; i < group.length; i++) if (group[i][0] > target[0]) target = group[i];
+      for (var j = 0; j < group.length; j++) grid[group[j][0]][group[j][1]] = null;
+      var newId = Date.now() + Math.random();
+      grid[target[0]][target[1]] = { v: newVal, id: newId };
+      popCells[target[0] + ',' + target[1]] = performance.now();
+      addFloat(target[1], target[0], '+' + gained, '#ffd23f');
+      if (chain > 1) addFloat(target[1], target[0], 'COMBO \u00d7' + chain, '#ffffff');
+      logEvent('merge', { value: newVal, chain_len: chain, score_after: score });
+      sndMerge(chain, newVal);
+      applyGravity();
+      // Locate the merged tile by id after gravity (never by value).
+      var found = false;
+      for (var rr = 0; rr < ROWS && !found; rr++) {
+        for (var cc = 0; cc < COLS; cc++) {
+          if (grid[rr][cc] && grid[rr][cc].id === newId) { found = true; break; }
+        }
+      }
+      if (!found) break;
+      if (chain > 50) break; // safety guard against pathological loops
+    }
+    if (chain > 0 && mergesBefore === 0) {
+      hintEl.innerHTML = '<b>Nice merge!</b> Keep matching the same number to climb higher.';
+    }
+    refreshHud();
+    return chain;
+  }
+
+  function resolveMerges(startR, startC) {
+    return resolveAllMerges();
+  }
+
+  function checkGameOver() {
+    if (countEmpty() === 0) { endGame(); return true; }
+    return false;
+  }
+
+  function endGame() {
+    over = true; locked = true;
+    var duration = Math.round((Date.now() - startTime) / 1000);
+    var isNewBest = score > best;
+    if (isNewBest) { best = score; lsSet('mergedrop_best', best); }
+    if (maxTile > bestTile) { bestTile = maxTile; lsSet('mergedrop_best_tile', bestTile); }
+    gamesPlayed++; lsSet('mergedrop_games', gamesPlayed);
+    logEvent('game_over', { score: score, max_tile: maxTile, moves: moves, duration_sec: duration, reason: 'full' });
+    sndOver();
+    document.getElementById('finalScore').textContent = score;
+    document.getElementById('finalStats').textContent = 'Max tile ' + (maxTile || '–') + ' \u00b7 ' + moves + ' moves \u00b7 ' + duration + 's';
+    document.getElementById('newBest').style.display = isNewBest && score > 0 ? 'block' : 'none';
+    overlay.classList.add('show');
+    refreshHud();
+  }
+
+  function drop(col) {
+    if (over || locked || clearArmed) return;
+    ensureAudio();
+    var row = lowestEmptyRow(col);
+    if (row < 0) { sndDeny(); hintEl.textContent = 'That column is full — pick another one.'; return; }
+    locked = true;
+    var val = nextVal;
+    var m = metrics();
+    dropAnim = { col: col, row: row, val: val, fromY: -m.cell, toY: m.pad + row * m.cell, start: performance.now(), dur: 150 };
+    logEvent('move', { col: col, tile: val, moves_in_game: moves + 1 });
+    // Place logically at once; animation is visual only.
+    grid[row][col] = { v: val, id: Date.now() + Math.random() };
+    moves++;
+    sndDrop();
+    setTimeout(function () {
+      dropAnim = null;
+      resolveMerges(row, col);
+      if (!over) {
+        nextVal = pickNext();
+        refreshNext(); refreshHud();
+        if (countEmpty() <= 4 && !over) {
+          hintEl.innerHTML = 'Board nearly full! <b>Use Clear a tile</b> or merge fast.';
+        }
+        locked = false;
+        checkGameOver();
+      }
+    }, 170);
+  }
+
+  function clearTileAt(col, row) {
+    if (!grid[row][col]) return;
+    grid[row][col] = null;
+    clearsLeft--;
+    clearArmed = false;
+    applyGravity();
+    resolveAllMerges();
+    beep(520, 0.12, 'sine', 0.1);
+    addFloat(col, row, 'Cleared', '#9fb0cc');
+    refreshHud();
+  }
+
+  // ---------- rendering ----------
+  function metrics() {
+    var w = canvas.width, pad = 16, gap = 8;
+    var cell = (w - pad * 2 - gap * (COLS - 1)) / COLS;
+    return { pad: pad, gap: gap, cell: cell };
+  }
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function draw(now) {
+    var m = metrics();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Board background + column hover highlight.
+    ctx.fillStyle = '#16203a';
+    roundRect(0, 0, canvas.width, canvas.height, 28); ctx.fill();
+    if (hoverCol >= 0 && !over && !locked) {
+      ctx.fillStyle = 'rgba(255,210,63,0.10)';
+      var hx = m.pad + hoverCol * (m.cell + m.gap);
+      roundRect(hx - 4, m.pad - 6, m.cell + 8, m.cell * ROWS + m.gap * (ROWS - 1) + 12, 16); ctx.fill();
+      // (Ghost preview moved below the tiles: it now shows where the next
+      // tile will land, inside the board, instead of above the canvas.)
+    }
+    // Empty cells.
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var x = m.pad + c * (m.cell + m.gap), y = m.pad + r * (m.cell + m.gap);
+        if (!grid[r] || !grid[r][c]) {
+          var low = countEmpty() <= 4;
+          ctx.fillStyle = low ? 'rgba(255,210,63,0.10)' : '#202c49';
+          roundRect(x, y, m.cell, m.cell, 14); ctx.fill();
+        }
+      }
+    }
+    // Tiles.
+    for (var r2 = 0; r2 < ROWS; r2++) {
+      for (var c2 = 0; c2 < COLS; c2++) {
+        var t = grid[r2][c2];
+        if (!t) continue;
+        // Skip the animating tile; it is drawn separately.
+        if (dropAnim && dropAnim.col === c2 && dropAnim.row === r2) continue;
+        var tx = m.pad + c2 * (m.cell + m.gap), ty = m.pad + r2 * (m.cell + m.gap);
+        var key = r2 + ',' + c2, scale = 1;
+        if (popCells[key]) {
+          var age = now - popCells[key];
+          if (age < 220) scale = 1 + 0.18 * Math.sin((age / 220) * Math.PI);
+          else delete popCells[key];
+        }
+        var cx = tx + m.cell / 2, cy = ty + m.cell / 2;
+        var w = m.cell * scale, h = m.cell * scale;
+        ctx.fillStyle = colorFor(t.v);
+        roundRect(cx - w / 2, cy - h / 2, w, h, 14 * scale); ctx.fill();
+        ctx.fillStyle = '#fff';
+        var fs = t.v >= 10 ? m.cell * 0.36 : t.v >= 7 ? m.cell * 0.42 : m.cell * 0.48;
+        ctx.font = '800 ' + Math.round(fs) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(t.v), cx, cy + 1);
+      }
+    }
+    // Ghost preview: where the next tile will land, drawn inside the board.
+    if (hoverCol >= 0 && !over && !locked) {
+      var landRow = lowestEmptyRow(hoverCol);
+      if (landRow >= 0) {
+        var gx = m.pad + hoverCol * (m.cell + m.gap);
+        var gy = m.pad + landRow * (m.cell + m.gap);
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = colorFor(nextVal);
+        roundRect(gx, gy, m.cell, m.cell, 14); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.font = '800 ' + Math.round(m.cell * 0.42) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(nextVal), gx + m.cell / 2, gy + m.cell / 2 + 1);
+      }
+    }
+    // Falling tile animation.
+    if (dropAnim) {
+      var p = Math.min(1, (now - dropAnim.start) / dropAnim.dur);
+      var ease = 1 - Math.pow(1 - p, 2);
+      var ax = m.pad + dropAnim.col * (m.cell + m.gap);
+      var ay = dropAnim.fromY + (dropAnim.toY - dropAnim.fromY) * ease;
+      ctx.fillStyle = colorFor(dropAnim.val);
+      roundRect(ax, ay, m.cell, m.cell, 14); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '800 ' + Math.round(m.cell * 0.48) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(dropAnim.val), ax + m.cell / 2, ay + m.cell / 2 + 1);
+    }
+    // Floating score texts.
+    for (var i = floats.length - 1; i >= 0; i--) {
+      var f = floats[i];
+      f.life += 16;
+      if (f.life >= f.total) { floats.splice(i, 1); continue; }
+      var a = 1 - f.life / f.total;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = f.color;
+      ctx.font = '800 30px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(f.text, f.x, f.y - (f.life / f.total) * 46);
+      ctx.globalAlpha = 1;
+    }
+    requestAnimationFrame(draw);
+  }
+
+  // ---------- input ----------
+  function colFromEvent(e) {
+    var rect = canvas.getBoundingClientRect();
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var x = (clientX - rect.left) * (canvas.width / rect.width);
+    var m = metrics();
+    var col = Math.floor((x - m.pad) / (m.cell + m.gap));
+    if (col < 0) col = 0; if (col > COLS - 1) col = COLS - 1;
+    return col;
+  }
+  function rowFromEvent(e) {
+    var rect = canvas.getBoundingClientRect();
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    var y = (clientY - rect.top) * (canvas.height / rect.height);
+    var m = metrics();
+    var row = Math.floor((y - m.pad) / (m.cell + m.gap));
+    if (row < 0) row = 0; if (row > ROWS - 1) row = ROWS - 1;
+    return row;
+  }
+  canvas.addEventListener('mousemove', function (e) { hoverCol = colFromEvent(e); });
+  canvas.addEventListener('mouseleave', function () { hoverCol = -1; });
+  canvas.addEventListener('click', function (e) {
+    var col = colFromEvent(e), row = rowFromEvent(e);
+    if (clearArmed) { clearTileAt(col, row); return; }
+    drop(col);
+  });
+  canvas.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    var col = colFromEvent(e), row = rowFromEvent(e);
+    if (clearArmed) { clearTileAt(col, row); return; }
+    drop(col);
+  }, { passive: false });
+  document.addEventListener('keydown', function (e) {
+    if (over) { if (e.key === 'Enter') newGame(); return; }
+    if (e.key >= '1' && e.key <= '5') drop(parseInt(e.key, 10) - 1);
+    else if (e.key === 'ArrowLeft') { selectedCol = Math.max(0, selectedCol - 1); hoverCol = selectedCol; }
+    else if (e.key === 'ArrowRight') { selectedCol = Math.min(COLS - 1, selectedCol + 1); hoverCol = selectedCol; }
+    else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); drop(selectedCol); }
+  });
+  document.getElementById('restartBtn').addEventListener('click', function () {
+    logEvent('restart_click', {}); ensureAudio(); newGame();
+  });
+  document.getElementById('againBtn').addEventListener('click', function () {
+    logEvent('restart_click', {}); ensureAudio(); newGame();
+  });
+  clearBtn.addEventListener('click', function () {
+    if (clearsLeft <= 0 || over) return;
+    ensureAudio();
+    clearArmed = !clearArmed;
+    hintEl.innerHTML = clearArmed ? 'Clear mode: <b>tap any tile to remove it.</b>' : 'Tap a column to drop. <b>Two same numbers touch &rarr; they merge up.</b>';
+    refreshHud();
+  });
+  window.addEventListener('pagehide', function () {
+    logEvent('quit', { duration_sec: Math.round((Date.now() - startTime) / 1000) });
+  });
+
+  // Test-only hook (no gameplay effect): automated verification drives the
+  // real drop() path and inspects the real board through this.
+  window.MERGE_DROP_TEST = {
+    drop: function (col) { drop(col); },
+    newGame: function () { newGame(); },
+    state: function () {
+      var g = [];
+      for (var r = 0; r < ROWS; r++) g.push(grid[r].map(function (t) { return t ? t.v : 0; }));
+      return { grid: g, score: score, maxTile: maxTile, moves: moves, merges: merges, over: over, nextVal: nextVal, clearsLeft: clearsLeft, adjacentPairs: countAdjacentPairs() };
+    },
+    countAdjacentPairs: countAdjacentPairs,
+    setHover: function (col) { hoverCol = col; },
+    drawOnce: function () { draw(performance.now()); }
+  };
+
+  // ---------- start ----------
+  // Hi-DPI sharpness.
+  (function fitCanvas() {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    var cssW = canvas.getBoundingClientRect().width || 400;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssW * 1.2 * dpr);
+    // Keep logical coordinate system at 720x864 via scaling in draw:
+    // simpler: reset to fixed internal resolution and let CSS scale it.
+    canvas.width = 720; canvas.height = 864;
+  })();
+  bestEl.textContent = best;
+  newGame();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
